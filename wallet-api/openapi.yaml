@@ -1,0 +1,530 @@
+openapi: 3.0.3
+info:
+  title: mpcium wallet-api — service interface
+  version: 0.1.0
+  description: |
+    Backend-to-backend contract between Granville Crypto (caller) and mpcium wallet-api.
+    The browser never calls this API directly.
+
+    **Open design issues — resolve before building Granville Crypto's API proxy**
+
+    1. `GET /service/wallets` — `walletH.ListAll` is referenced in the router but the
+       method does not exist. Compile error. Must be implemented before the wallet list works.
+
+    2. `user_id` scoping — service token calls currently store wallets with `user_id = ""`
+       because the service token middleware does not inject an org identity. The ownership
+       checks in wallet/transaction handlers use `WHERE ... AND user_id = $n`, so service
+       routes can only read wallets they created. Org-level scoping (passing an `org_id` in
+       the request body) is needed before multi-org production use.
+
+    3. Path prefix — workplan Phase 1c used `/api/v1/*`; actual implementation uses
+       `/service/*`. This spec treats `/service/*` as the source of truth.
+
+servers:
+  - url: https://mpc.granvillefinance.ca
+    description: Production (host TBD)
+  - url: http://localhost:8080
+    description: Local development
+
+security:
+  - ServiceToken: []
+
+components:
+  securitySchemes:
+    ServiceToken:
+      type: apiKey
+      in: header
+      name: X-Granville-Service-Token
+      description: |
+        Shared secret configured identically in mpcium (`config.yaml`) and Granville Crypto.
+        Always transmitted over HTTPS. Rejected with 401 if wrong; 503 if not configured.
+
+  schemas:
+    Wallet:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          description: |
+            Org/user identifier. Currently empty string for service-created wallets —
+            org scoping not yet implemented. See design issue #2 in info.description.
+        mpc_wallet_id:
+          type: string
+          format: uuid
+          description: The wallet ID used internally by the mpcium cluster.
+        chain:
+          type: string
+          enum: [ethereum, polygon, arbitrum, base, optimism]
+        address:
+          type: string
+          description: Lowercase 0x EVM address derived from the keygen public key.
+        derivation_path:
+          type: string
+          description: Empty string in current implementation.
+        created_at:
+          type: string
+          format: date-time
+
+    WalletDetail:
+      type: object
+      description: Wallet record plus live ERC-20 balances.
+      properties:
+        wallet:
+          $ref: "#/components/schemas/Wallet"
+        balances:
+          type: object
+          description: |
+            Raw token units (6 decimals for USDC/USDT). Redis-first with 60 s TTL;
+            falls back to eth_call on cache miss. Returns "0" when unavailable or
+            the chain/token combination is not supported.
+          properties:
+            USDC:
+              type: string
+              example: "1000000"
+            USDT:
+              type: string
+              example: "500000"
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: mpcium database record ID.
+        wallet_id:
+          type: string
+          format: uuid
+        tx_id:
+          type: string
+          format: uuid
+          description: Internal signing-session ID passed to the MPC cluster.
+        chain:
+          type: string
+          enum: [ethereum, polygon, arbitrum, base, optimism]
+        token:
+          type: string
+          enum: [USDC, USDT]
+        to_address:
+          type: string
+          description: 0x recipient address.
+        amount_raw:
+          type: string
+          description: >
+            Raw token units as decimal integer string
+            (e.g., "1000000" = 1.000000 USDC at 6 decimals).
+        status:
+          type: string
+          enum: [draft, policy_check, signing, signed, broadcast, confirmed, failed]
+          description: |
+            Lifecycle:
+              draft → signing → signed → broadcast → confirmed
+            Any stage can transition to failed.
+            policy_check is reserved for Granville Crypto's use and is not set by mpcium.
+        tx_hash:
+          type: string
+          description: 0x on-chain hash. Empty string until status reaches broadcast.
+        block_number:
+          type: integer
+          format: int64
+          description: 0 until status reaches confirmed.
+        created_at:
+          type: string
+          format: date-time
+
+    ClusterStatus:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+                enum: [online, unknown]
+        threshold:
+          type: integer
+          description: Minimum nodes required to sign. Configured in mpcium; default 2.
+        total:
+          type: integer
+          description: Total MPC nodes configured.
+        healthy:
+          type: boolean
+          description: true when the mpcium client reports at least one node reachable.
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+paths:
+  /service/wallets:
+    post:
+      operationId: createWallet
+      summary: Create wallet (trigger MPC keygen)
+      description: |
+        Triggers a keygen ceremony on the mpcium cluster. Blocks until the ceremony
+        completes or times out (5 minutes). Call this only after org-admin approval
+        in Granville Crypto.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chain]
+              properties:
+                chain:
+                  type: string
+                  enum: [ethereum, polygon, arbitrum, base, optimism]
+                org_id:
+                  type: string
+                  description: >
+                    Not yet consumed by mpcium — include now for forward compatibility
+                    with design issue #2.
+            example:
+              chain: ethereum
+              org_id: org_2abc123
+      responses:
+        "201":
+          description: Wallet created; keygen succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "400":
+          description: chain missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Keygen failed or timed out after 5 minutes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    get:
+      operationId: listWallets
+      summary: List all wallets
+      description: |
+        **NOT YET IMPLEMENTED** — `walletH.ListAll` is referenced in the router but the
+        handler method does not exist (compile error). This spec documents the intended
+        behaviour. When implemented it should return all wallets irrespective of `user_id`
+        so that Granville Crypto can render the full org wallet list.
+      responses:
+        "200":
+          description: Array of wallets (newest first).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Wallet"
+
+  /service/wallets/{id}:
+    get:
+      operationId: getWallet
+      summary: Wallet detail + live balances
+      description: |
+        Returns the wallet record plus USDC/USDT balances from the indexer cache.
+        Balance reads are chain-aware: ethereum and polygon support both USDC and USDT;
+        base supports USDC only; arbitrum and optimism support both.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Wallet with balances.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletDetail"
+        "404":
+          description: Wallet not found (or owned by a different user_id).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /service/wallets/{id}/transactions:
+    get:
+      operationId: listTransactionsByWallet
+      summary: List transactions for a wallet
+      description: Returns up to 50 transactions, newest first.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Transaction array (empty array if none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Wallet not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /service/transactions:
+    post:
+      operationId: sendTransaction
+      summary: Sign and broadcast a transaction
+      description: |
+        Full pipeline: build unsigned ERC-20 transfer → MPC sign (blocks up to 3 min) →
+        assemble → broadcast. Returns the transaction record at status `broadcast`.
+
+        **Granville Crypto is responsible** for policy evaluation and multi-party approval
+        before calling this endpoint. mpcium signs whatever arrives through an
+        authenticated service-token call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallet_id, token, to_address, amount]
+              properties:
+                wallet_id:
+                  type: string
+                  format: uuid
+                token:
+                  type: string
+                  enum: [USDC, USDT]
+                to_address:
+                  type: string
+                  description: 0x recipient address.
+                amount:
+                  type: string
+                  description: >
+                    Raw token units as decimal integer string.
+                    E.g., "1000000" = 1 USDC (6 decimals).
+            example:
+              wallet_id: 550e8400-e29b-41d4-a716-446655440000
+              token: USDC
+              to_address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+              amount: "1000000"
+      responses:
+        "202":
+          description: Transaction signed and broadcast. Confirmation arrives via SSE.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "400":
+          description: Missing or invalid fields, or amount is not a valid integer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Wallet not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Signing failed, signing timed out (3 min), or broadcast failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /service/transactions/{id}:
+    get:
+      operationId: getTransaction
+      summary: Get transaction by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: wallet_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: >
+            Effectively required — the DB query is `WHERE id = $1 AND wallet_id = $2`
+            and will return 404 if omitted.
+      responses:
+        "200":
+          description: Transaction record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /service/transactions/{id}/cancel:
+    post:
+      operationId: cancelTransaction
+      summary: Cancel a pending transaction
+      description: |
+        Replaces the original with a 0-value self-transfer at the same nonce, paying
+        20% higher gas to outbid it. The original must be in `broadcast` or `signed` status.
+        On success the original is marked `failed` with error code `cancelled_by_user`,
+        and a new transaction record is returned at status `broadcast`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ID of the transaction to cancel.
+        - name: wallet_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Cancel transaction broadcast.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Wallet or transaction not found, or transaction not in a cancellable status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Cancel-tx signing failed or timed out (3 min).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /service/transactions/{id}/speed-up:
+    post:
+      operationId: speedUpTransaction
+      summary: Speed up a pending transaction
+      description: |
+        Resubmits the same transaction payload at the same nonce with 20% higher gas tip.
+        The original must be in `broadcast` or `signed` status.
+        Returns a new transaction record at status `broadcast`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ID of the transaction to speed up.
+        - name: wallet_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Speed-up transaction broadcast.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Wallet or transaction not found, or transaction not in a speed-up eligible status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Speed-up signing failed or timed out (3 min).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /service/health/cluster:
+    get:
+      operationId: clusterHealth
+      summary: MPC cluster health
+      description: |
+        Returns the reachability status of each MPC node and whether the cluster
+        can sign (i.e., enough nodes are online to meet threshold). Safe to poll.
+      responses:
+        "200":
+          description: Cluster status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterStatus"
+              example:
+                nodes:
+                  - { name: node0, status: online }
+                  - { name: node1, status: online }
+                  - { name: node2, status: unknown }
+                threshold: 2
+                total: 3
+                healthy: true
+
+  /service/events:
+    get:
+      operationId: sseEvents
+      summary: Real-time transaction events (SSE)
+      description: |
+        Long-lived Server-Sent Events connection. mpcium pushes events for all managed
+        wallets — Granville Crypto should filter by wallet ID or address on the client side.
+
+        **Event types and payloads:**
+
+        `tx_confirmed` — outbound transaction confirmed on-chain (triggered by Alchemy webhook)
+        ```
+        event: tx_confirmed
+        data: {"type":"tx_confirmed","tx_hash":"0x...","block_number":21000000}
+        ```
+
+        `tx_received` — inbound ERC-20 transfer arrived at a managed wallet address
+        ```
+        event: tx_received
+        data: {"type":"tx_received","tx_hash":"0x...","asset":"USDC","raw_value":"1000000","to_address":"0x...","from_address":"0x..."}
+        ```
+      responses:
+        "200":
+          description: SSE stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Newline-delimited `event:`/`data:` pairs per the SSE spec.
+        "500":
+          description: Streaming not supported by the server or proxy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
