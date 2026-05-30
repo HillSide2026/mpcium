@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+/* BlueWallet-inspired design tokens */
+:root {
+  --bw-bg:          #ffffff;
+  --bw-bg-alt:      #f5f5f5;
+  --bw-navy:        #0c2550;
+  --bw-blue:        #007aff;
+  --bw-blue-mid:    #0f5cc0;
+  --bw-muted:       #9aa0aa;
+  --bw-border:      #ededed;
+  --bw-pill:        #ccddf9;
+  --bw-incoming:    #37c0a1;
+  --bw-incoming-bg: #d2f8d6;
+  --bw-outgoing:    #d0021b;
+  --bw-outgoing-bg: #f8d2d2;
+  --bw-pending:     #2757c6;
+}
+
+@theme inline {
+  --color-bw-navy:     var(--bw-navy);
+  --color-bw-blue:     var(--bw-blue);
+  --color-bw-blue-mid: var(--bw-blue-mid);
+  --color-bw-muted:    var(--bw-muted);
+  --color-bw-pill:     var(--bw-pill);
+  --color-bw-incoming: var(--bw-incoming);
+  --color-bw-outgoing: var(--bw-outgoing);
+  --color-bw-pending:  var(--bw-pending);
+}
+
+body {
+  background: var(--bw-bg);
+  color: var(--bw-navy);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Hide scrollbars on carousel but keep scrollability */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Carousel snap */
+.snap-x-mandatory {
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+.snap-start { scroll-snap-align: start; }

@@ -1,0 +1,25 @@
+version: "3"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: walletapi-postgres
+    environment:
+      POSTGRES_USER: walletapi
+      POSTGRES_PASSWORD: walletapi
+      POSTGRES_DB: walletapi
+    ports:
+      - "5432:5432"
+    volumes:
+      - walletapi-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: walletapi-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  walletapi-pgdata:
