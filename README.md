@@ -14,6 +14,8 @@ The engine runs a cluster of MPC nodes that jointly generate and sign with priva
 
 ## Integration
 
+See [`INTEGRATION.md`](./INTEGRATION.md) for the six-phase plan covering how mpcium integrates with Granville Crypto and Granville.
+
 See [`wallet-api/README.md`](./wallet-api/README.md) for the service contract, auth model, supported chains, and known gaps.
 
 The full REST API is documented in [`wallet-api/openapi.yaml`](./wallet-api/openapi.yaml).

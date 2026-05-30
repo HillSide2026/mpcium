@@ -1,36 +1,22 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# wallet-frontend
 
-## Getting Started
+Reference Next.js app built to develop and validate the wallet UI components. **Not deployed as a standalone product.**
 
-First, run the development server:
+The components in this directory are being migrated into Granville Crypto as the Wallets feature. The app here exists so components can be built and tested against a real mpcium backend before that migration happens.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## What gets migrated to Granville Crypto
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| Component | Destination in Granville Crypto |
+|---|---|
+| `WalletCarousel`, `WalletCard`, `BalanceDisplay`, `CopyAddress`, `ClusterStatus` | Wallets landing page |
+| `KeygenCeremony` | Wallet creation flow (after org-admin approval) |
+| `ReceiveModal`, `PriceChart`, `AnimatedNumber` | Wallet detail page |
+| `SigningTheater` | Transaction confirmation step |
+| `ActivityFeed`, `TxTimeline`, `TxStatusBadge` | Transaction detail |
+| `SSEProvider` | Shared provider in Granville Crypto app shell |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Roadmap
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Component-level priorities (P0 MPC security story, P1 UX completeness, P2 product depth) are in [ROADMAP.md](./ROADMAP.md).
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The six-phase integration plan covering how and when these components land in Granville Crypto is in [INTEGRATION.md](../INTEGRATION.md) at the repo root.
